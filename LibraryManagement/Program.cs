@@ -9,13 +9,11 @@ using System.Text;
 var builder = WebApplication.CreateBuilder(args);
 
 // -------------------------------------------
-// 1️⃣ DATABASE (MySQL)
+// 1️⃣ DATABASE (PostgreSQL for Render)
 // -------------------------------------------
+// Use "DefaultConnection" from appsettings.json or Render environment variables
 builder.Services.AddDbContext<AppDbContext>(options =>
-    options.UseMySql(
-        builder.Configuration.GetConnectionString("DefaultConnection"),
-        new MySqlServerVersion(new Version(8, 0, 23))
-    )
+    options.UseNpgsql(builder.Configuration.GetConnectionString("DefaultConnection"))
 );
 
 // -------------------------------------------
@@ -42,10 +40,10 @@ builder.Services.AddAuthentication(options =>
         ValidateLifetime = true,
         ValidateIssuerSigningKey = true,
         IssuerSigningKey = new SymmetricSecurityKey(
-            Encoding.UTF8.GetBytes(builder.Configuration["Jwt:Key"]))
+            Encoding.UTF8.GetBytes(builder.Configuration["Jwt:Key"])
+        )
     };
 });
-
 
 // -------------------------------------------
 // 4️⃣ JSON FIX (Avoid circular loop)
@@ -72,24 +70,26 @@ builder.Services.AddSwaggerGen(c =>
     c.AddSecurityDefinition("Bearer", new OpenApiSecurityScheme
     {
         In = ParameterLocation.Header,
-        Description = "Please enter a valid token",
+        Description = "Please enter a valid JWT token",
         Name = "Authorization",
         Type = SecuritySchemeType.Http,
         Scheme = "Bearer"
     });
 
-    c.AddSecurityRequirement(new OpenApiSecurityRequirement {
+    c.AddSecurityRequirement(new OpenApiSecurityRequirement
     {
-        new OpenApiSecurityScheme
         {
-            Reference = new OpenApiReference
+            new OpenApiSecurityScheme
             {
-                Type = ReferenceType.SecurityScheme,
-                Id = "Bearer"
-            }
-        },
-        new string[]{ }
-    }});
+                Reference = new OpenApiReference
+                {
+                    Type = ReferenceType.SecurityScheme,
+                    Id = "Bearer"
+                }
+            },
+            new string[]{ }
+        }
+    });
 });
 
 // -------------------------------------------
@@ -98,20 +98,27 @@ builder.Services.AddSwaggerGen(c =>
 var app = builder.Build();
 
 // -------------------------------------------
-// Swagger UI
+// Swagger (always for Docker/Render)
 // -------------------------------------------
-if (app.Environment.IsDevelopment())
-{
-    app.UseSwagger();
-    app.UseSwaggerUI();
-}
+app.UseSwagger();
+app.UseSwaggerUI();
 
-app.UseHttpsRedirection();
+// Render does NOT use HTTPS normally
+// app.UseHttpsRedirection();  <-- REMOVE for Render (optional)
 
-// IMPORTANT ORDER
-app.UseAuthentication(); // 🔐 Check token
-app.UseAuthorization();  // 🔓 Allow/deny access
+// Authentication FIRST
+app.UseAuthentication();
+// Then Authorization
+app.UseAuthorization();
 
+// -------------------------------------------
+// Redirect root → Swagger UI
+// -------------------------------------------
+app.MapGet("/", () => Results.Redirect("/swagger/index.html"));
+
+// -------------------------------------------
+// Map controllers
+// -------------------------------------------
 app.MapControllers();
 
 app.Run();
